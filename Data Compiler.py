@@ -273,6 +273,13 @@ if 'dataframe' in st.session_state:
             for row in range(2, len(df_excel) + 2):
                 cell = worksheet.cell(row=row, column=1)
                 cell.number_format = 'DD-MM-YYYY'
+            
+            # Apply number format with 2 decimals to all price columns
+            for col_idx, col_name in enumerate(df_excel.columns, start=1):
+                if col_name != 'Date':
+                    for row in range(2, len(df_excel) + 2):
+                        cell = worksheet.cell(row=row, column=col_idx)
+                        cell.number_format = '0.00'
         
         st.download_button(
             label="📥 Download as Excel",
