@@ -157,14 +157,15 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 index_symbols = [nifty_indices[idx] for idx in selected_indices]
                 all_symbols = stock_symbols + index_symbols
                 
-                # Fetch data
+                # Fetch data with auto_adjust=False to get raw unadjusted prices
                 if period_type == 'Predefined':
-                    data = yf.download(all_symbols, period=period, progress=False)
+                    data = yf.download(all_symbols, period=period, auto_adjust=False, progress=False)
                 else:
                     data = yf.download(
                         all_symbols, 
                         start=start_date, 
                         end=end_date,
+                        auto_adjust=False,
                         progress=False
                     )
                 
