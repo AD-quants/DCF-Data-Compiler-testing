@@ -169,10 +169,35 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                         progress=False
                     )
                 
-                # Check if data is empty
+                # Check if data is empty or invalid
                 if data.empty:
-                    st.error("⚠️ No data received. Please check the ticker symbols and try again.")
+                    st.error("❌ No data received. Please check the ticker symbols and try again.")
+                    st.error("⚠️ Make sure the tickers are valid NSE symbols (e.g., RELIANCE, TCS, INFY)")
                     st.stop()
+                
+                # Check if any columns have all NaN values (invalid ticker)
+                if len(all_symbols) == 1:
+                    if data[price_type].isna().all():
+                        st.error("❌ Invalid ticker symbol. No data available.")
+                        st.error("⚠️ Please verify the ticker symbol is correct and listed on NSE")
+                        st.stop()
+                else:
+                    # For multiple symbols, check if all price data is NaN
+                    if isinstance(data.columns, pd.MultiIndex):
+                        price_data = data[price_type]
+                    else:
+                        price_data = data
+                    
+                    # Check which symbols have no data
+                    invalid_symbols = []
+                    for symbol in all_symbols:
+                        if symbol in price_data.columns and price_data[symbol].isna().all():
+                            invalid_symbols.append(symbol)
+                    
+                    if invalid_symbols:
+                        st.error(f"❌ Invalid ticker(s): {', '.join(invalid_symbols)}")
+                        st.error("⚠️ Please check the ticker symbols and try again")
+                        st.stop()
                 
                 # Handle single vs multiple tickers - FIXED to use correct Close price
                 if len(all_symbols) == 1:
