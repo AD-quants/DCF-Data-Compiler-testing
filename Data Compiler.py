@@ -163,7 +163,15 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                         progress=False
                     )
                 
-
+                # Handle single vs multiple tickers
+                if len(all_symbols) == 1:
+                    df = pd.DataFrame({
+                        'Date': data.index,
+                        all_symbols[0]: data['Close'].values
+                    })
+                else:
+                    df = data['Close'].copy()
+                    df.reset_index(inplace=True)
                 
                 # Rename columns to remove .NS and use friendly index names
                 column_mapping = {'Date': 'Date'}
@@ -187,12 +195,6 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
             except Exception as e:
                 st.error(f"❌ Error fetching data: {str(e)}")
                 st.info("💡 Make sure the ticker symbols are valid and have data available for the selected period")
-                
-                # Show which symbols were attempted
-                with st.expander("Debug Information"):
-                    st.write("**Attempted symbols:**")
-                    for symbol in all_symbols:
-                        st.write(f"- {symbol}")
 
 # Display data and download option
 if 'dataframe' in st.session_state:
