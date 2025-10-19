@@ -163,15 +163,7 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                         progress=False
                     )
                 
-                # Handle single vs multiple tickers
-                if len(all_symbols) == 1:
-                    df = pd.DataFrame({
-                        'Date': data.index,
-                        all_symbols[0]: data['Close'].values
-                    })
-                else:
-                    df = data['Close'].copy()
-                    df.reset_index(inplace=True)
+
                 
                 # Rename columns to remove .NS and use friendly index names
                 column_mapping = {'Date': 'Date'}
