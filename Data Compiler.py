@@ -64,10 +64,6 @@ col1, col2 = st.columns([1, 1])
 with col1:
     st.subheader("🎯 Stock Tickers")
     
-    # Initialize session state for tickers
-    if 'ticker_count' not in st.session_state:
-        st.session_state.ticker_count = 1
-    
     tickers_input = st.text_area(
         "Enter stock tickers (one per line, without .NS)",
         placeholder="RELIANCE\nTCS\nINFY\nHDFC",
@@ -133,6 +129,15 @@ else:
         )
     period = None
 
+# Price type selection
+st.subheader("💰 Price Type")
+price_type = st.selectbox(
+    "Select Price Column",
+    options=['Close', 'Adj Close', 'Open'],
+    index=0,
+    help="Close: Actual closing price (matches NSE) | Adj Close: Adjusted for splits/dividends | Open: Opening price"
+)
+
 # Add some spacing
 st.markdown("---")
 
@@ -163,14 +168,25 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                         progress=False
                     )
                 
-                # Handle single vs multiple tickers
+                # Check if data is empty
+                if data.empty:
+                    st.error("⚠️ No data received. Please check the ticker symbols and try again.")
+                    st.stop()
+                
+                # Handle single vs multiple tickers - FIXED to use correct Close price
                 if len(all_symbols) == 1:
+                    # For single ticker, structure is simple
                     df = pd.DataFrame({
                         'Date': data.index,
-                        all_symbols[0]: data['Close'].values
+                        all_symbols[0]: data[price_type].values
                     })
                 else:
-                    df = data['Close'].copy()
+                    # For multiple tickers, data has MultiIndex columns
+                    # Explicitly extract the selected price type
+                    if isinstance(data.columns, pd.MultiIndex):
+                        df = data[price_type].copy()
+                    else:
+                        df = data[[price_type]].copy()
                     df.reset_index(inplace=True)
                 
                 # Rename columns to remove .NS and use friendly index names
@@ -186,6 +202,9 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 ordered_columns = ['Date'] + tickers + selected_indices
                 df = df[ordered_columns]
                 
+                # Format date as dd-mm-yyyy for display but keep as datetime
+                df['Date'] = pd.to_datetime(df['Date'])
+                
                 # Store in session state
                 st.session_state['dataframe'] = df
                 st.session_state['symbols'] = tickers + selected_indices
@@ -194,7 +213,7 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 
             except Exception as e:
                 st.error(f"❌ Error fetching data: {str(e)}")
-                st.info("💡 Make sure the ticker symbols are valid and have data available for the selected period")
+                st.error("⚠️ Please check the ticker symbols entered and try again.")
 
 # Display data and download option
 if 'dataframe' in st.session_state:
@@ -203,8 +222,12 @@ if 'dataframe' in st.session_state:
     
     df = st.session_state['dataframe']
     
-    # Display preview
-    st.dataframe(df.head(10), use_container_width=True)
+    # Create display dataframe with formatted dates
+    df_display = df.copy()
+    df_display['Date'] = df_display['Date'].dt.strftime('%d-%m-%Y')
+    
+    # Display preview without index
+    st.dataframe(df_display.head(10), use_container_width=True, hide_index=True)
     
     if len(df) > 10:
         st.info(f"Showing first 10 of {len(df)} rows")
@@ -218,9 +241,9 @@ if 'dataframe' in st.session_state:
     with col_stats2:
         st.metric("Date Range", f"{(df['Date'].max() - df['Date'].min()).days} days")
     with col_stats3:
-        st.metric("Start Date", df['Date'].min().strftime('%Y-%m-%d'))
+        st.metric("Start Date", df['Date'].min().strftime('%d-%m-%Y'))
     with col_stats4:
-        st.metric("End Date", df['Date'].max().strftime('%Y-%m-%d'))
+        st.metric("End Date", df['Date'].max().strftime('%d-%m-%Y'))
     
     # Download section
     st.markdown("---")
@@ -229,10 +252,21 @@ if 'dataframe' in st.session_state:
     col_dl1, col_dl2 = st.columns(2)
     
     with col_dl1:
-        # Excel download
+        # Excel download - date will be stored as datetime
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Stock Data')
+            # Create a copy for Excel with proper date format
+            df_excel = df.copy()
+            df_excel.to_excel(writer, index=False, sheet_name='Stock Data')
+            
+            # Format the date column in Excel
+            workbook = writer.book
+            worksheet = writer.sheets['Stock Data']
+            
+            # Apply date format to Date column (column A)
+            for row in range(2, len(df_excel) + 2):
+                cell = worksheet.cell(row=row, column=1)
+                cell.number_format = 'DD-MM-YYYY'
         
         st.download_button(
             label="📥 Download as Excel",
@@ -243,8 +277,10 @@ if 'dataframe' in st.session_state:
         )
     
     with col_dl2:
-        # CSV download
-        csv = df.to_csv(index=False)
+        # CSV download with formatted dates
+        df_csv = df.copy()
+        df_csv['Date'] = df_csv['Date'].dt.strftime('%d-%m-%Y')
+        csv = df_csv.to_csv(index=False)
         st.download_button(
             label="📥 Download as CSV",
             data=csv,
@@ -260,6 +296,7 @@ st.markdown("""
     <p>💡 <strong>Pro Tips:</strong></p>
     <ul style='list-style-type: none; padding: 0;'>
         <li>✓ No need to add .NS suffix - it's added automatically</li>
+        <li>✓ Use 'Close' price type to match NSE website prices</li>
         <li>✓ Data is fetched from Yahoo Finance using yfinance</li>
         <li>✓ Excel files can be directly used in your DCF models</li>
     </ul>
