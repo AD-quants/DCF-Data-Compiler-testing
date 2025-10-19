@@ -206,6 +206,11 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 # Format date as dd-mm-yyyy for display but keep as datetime
                 df['Date'] = pd.to_datetime(df['Date'])
                 
+                # Round all price columns to 2 decimal places
+                for col in df.columns:
+                    if col != 'Date':
+                        df[col] = df[col].astype(float).round(2)
+                
                 # Store in session state
                 st.session_state['dataframe'] = df
                 st.session_state['symbols'] = tickers + selected_indices
