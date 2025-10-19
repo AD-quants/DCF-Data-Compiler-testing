@@ -187,6 +187,12 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
             except Exception as e:
                 st.error(f"❌ Error fetching data: {str(e)}")
                 st.info("💡 Make sure the ticker symbols are valid and have data available for the selected period")
+                
+                # Show which symbols were attempted
+                with st.expander("Debug Information"):
+                    st.write("**Attempted symbols:**")
+                    for symbol in all_symbols:
+                        st.write(f"- {symbol}")
 
 # Display data and download option
 if 'dataframe' in st.session_state:
