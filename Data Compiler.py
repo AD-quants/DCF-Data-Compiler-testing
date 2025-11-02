@@ -90,63 +90,70 @@ nse_api_index_mapping = {
 }
 
 def fetch_nse_index_data(index_name, start_date, end_date):
-    """Fetch index data directly from NSE/Nifty Indices website"""
+    """Fetch index data directly from NSE website"""
     try:
-        # NSE Nifty Indices API endpoint
-        base_url = "https://www.niftyindices.com"
-        api_url = 'https://www.niftyindices.com/Backpage.aspx/getHistoricaldatatabletoString'
+        # NSE Historical Index Data page
+        base_url = "https://www.nseindia.com"
+        page_url = "https://www.nseindia.com/reports-indices-historical-index-data"
+        api_url = "https://www.nseindia.com/api/historical/indicesHistory"
         
         # Headers to mimic browser
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "accept": "application/json, text/javascript, */*; q=0.01",
-            "accept-language": "en-US,en;q=0.9",
-            "content-type": "application/json; charset=UTF-8",
-            "x-requested-with": "XMLHttpRequest"
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Referer": page_url,
+            "X-Requested-With": "XMLHttpRequest"
         }
         
-        # Create session and get cookies
+        # Create session and establish cookies by visiting the page first
         session = requests.Session()
-        session.get(base_url, headers=headers)
+        session.get(base_url, headers=headers, timeout=10)
+        time.sleep(1)  # Give time for cookies to set
         
-        # Format dates as DD-MMM-YYYY (e.g., 01-Jan-2021)
-        start_str = start_date.strftime('%d-%b-%Y')
-        end_str = end_date.strftime('%d-%b-%Y')
+        # Visit the historical data page
+        session.get(page_url, headers=headers, timeout=10)
+        time.sleep(1)
         
-        # Payload for API request
-        payload = {
-            'name': index_name,
-            'startDate': start_str,
-            'endDate': end_str
+        # Format dates as DD-MM-YYYY
+        start_str = start_date.strftime('%d-%m-%Y')
+        end_str = end_date.strftime('%d-%m-%Y')
+        
+        # Prepare API parameters
+        params = {
+            'indexType': index_name,
+            'from': start_str,
+            'to': end_str
         }
         
         # Make API request
-        response = session.post(api_url, headers=headers, json=payload, timeout=15)
+        response = session.get(api_url, headers=headers, params=params, timeout=15)
         
         if response.status_code == 200:
             data = response.json()
             
-            # Parse the response
-            if 'd' in data and data['d']:
-                # Convert JSON to DataFrame
-                import json
-                df = pd.read_json(io.StringIO(data['d']))
+            # Parse the response - NSE returns data in 'data' key
+            if 'data' in data and 'indexCloseOnlineRecords' in data['data']:
+                records = data['data']['indexCloseOnlineRecords']
                 
-                if not df.empty:
-                    # Convert date column
-                    df['HistoricalDate'] = pd.to_datetime(df['HistoricalDate'], format='%d-%b-%Y')
+                if records:
+                    df = pd.DataFrame(records)
                     
-                    # Create series with date as index and Close as values
+                    # Convert EOD_TIMESTAMP to datetime
+                    df['EOD_TIMESTAMP'] = pd.to_datetime(df['EOD_TIMESTAMP'], format='%d-%b-%Y')
+                    
+                    # Create series with date as index and CLOSE as values
                     result = pd.Series(
-                        data=df['CLOSE'].values,
-                        index=df['HistoricalDate']
+                        data=df['EOD_CLOSE_INDEX_VAL'].values,
+                        index=df['EOD_TIMESTAMP']
                     )
                     return result
         
         return None
         
     except Exception as e:
-        st.warning(f"NSE API fetch failed for {index_name}: {str(e)}")
+        # Silently fail - we'll show aggregate message
         return None
 
 def fetch_nse_stock_data(symbol, start_date, end_date):
