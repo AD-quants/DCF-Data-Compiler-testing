@@ -78,103 +78,54 @@ investing_index_mapping = {
 }
 
 def fetch_investing_index_data(index_id, index_name, start_date, end_date):
-    """Fetch index data from Investing.com"""
+    """Fetch index data using investpy library"""
     try:
-        from bs4 import BeautifulSoup
+        import investpy
         
-        # Investing.com historical data API endpoint
-        base_url = f"https://in.investing.com/indices/{index_name}-historical-data"
-        api_url = "https://in.investing.com/instruments/HistoricalDataAjax"
-        
-        # Headers to mimic browser
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "X-Requested-With": "XMLHttpRequest",
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": base_url,
-            "Origin": "https://in.investing.com"
+        # investpy uses different naming - map to their format
+        investpy_name_mapping = {
+            'cnx-fmcg': 'Nifty FMCG',
+            'nifty-50': 'Nifty 50',
+            'nifty-bank': 'Nifty Bank',
+            'nifty-it': 'Nifty IT',
+            'cnx-pharma': 'Nifty Pharma',
+            'cnx-auto': 'Nifty Auto',
+            'cnx-metal': 'Nifty Metal',
+            'cnx-realty': 'Nifty Realty',
+            'cnx-media': 'Nifty Media',
+            'cnx-energy': 'Nifty Energy',
+            'nifty-financial': 'Nifty Financial Services',
+            'cnx-infrastructure': 'Nifty Infrastructure',
+            'cnx-pse': 'Nifty PSE',
         }
         
-        # Create session and establish cookies by visiting the page first
-        session = requests.Session()
-        page_response = session.get(base_url, headers=headers, timeout=10)
-        time.sleep(1)
+        investpy_index_name = investpy_name_mapping.get(index_name)
         
-        # Format dates as MM/DD/YYYY for Investing.com (US format)
-        start_str = start_date.strftime('%m/%d/%Y')
-        end_str = end_date.strftime('%m/%d/%Y')
+        if not investpy_index_name:
+            return None
         
-        # Prepare form data - simplified version
-        payload = {
-            'curr_id': index_id,
-            'smlID': '300004',
-            'st_date': start_str,
-            'end_date': end_str,
-            'interval_sec': 'Daily',
-            'sort_col': 'date',
-            'sort_ord': 'DESC',
-            'action': 'historical_data'
-        }
+        # Format dates as DD/MM/YYYY for investpy
+        start_str = start_date.strftime('%d/%m/%Y')
+        end_str = end_date.strftime('%d/%m/%Y')
         
-        # Make POST request to get HTML table
-        response = session.post(api_url, data=payload, headers=headers, timeout=15)
+        # Fetch data using investpy
+        df = investpy.get_index_historical_data(
+            index=investpy_index_name,
+            country='india',
+            from_date=start_str,
+            to_date=end_str
+        )
         
-        if response.status_code == 200:
-            # Parse HTML response
-            soup = BeautifulSoup(response.text, 'html.parser')
-            table = soup.find('table', {'id': 'curr_table'})
-            
-            if not table:
-                table = soup.find('table')
-            
-            if table:
-                # Extract data from table
-                tbody = table.find('tbody')
-                if not tbody:
-                    rows = table.find_all('tr')[1:]  # Skip header
-                else:
-                    rows = tbody.find_all('tr')
-                
-                dates = []
-                prices = []
-                
-                for row in rows:
-                    cols = row.find_all('td')
-                    if len(cols) >= 2:
-                        # First column is date, second is Price (Close)
-                        date_str = cols[0].get_text(strip=True)
-                        price_str = cols[1].get_text(strip=True).replace(',', '')
-                        
-                        try:
-                            # Parse date - format could be "MMM DD, YYYY" or "DD/MM/YYYY"
-                            try:
-                                date_obj = pd.to_datetime(date_str, format='%b %d, %Y')
-                            except:
-                                date_obj = pd.to_datetime(date_str, format='%d/%m/%Y')
-                            
-                            price_val = float(price_str)
-                            
-                            dates.append(date_obj)
-                            prices.append(price_val)
-                        except Exception as parse_error:
-                            continue
-                
-                if dates and prices:
-                    # Create series with date as index
-                    result = pd.Series(data=prices, index=dates)
-                    st.success(f"✅ Fetched {len(dates)} records from Investing.com for {index_name}")
-                    return result
-                else:
-                    st.warning(f"⚠️ No data found in table for {index_name}")
-        else:
-            st.warning(f"⚠️ HTTP {response.status_code} for {index_name}")
+        if not df.empty and 'Close' in df.columns:
+            # investpy returns dataframe with date as index
+            result = df['Close']
+            st.success(f"✅ Fetched {len(result)} records from Investing.com for {investpy_index_name}")
+            return result
         
         return None
         
     except Exception as e:
-        st.warning(f"⚠️ Error fetching from Investing.com: {str(e)}")
+        st.warning(f"⚠️ investpy error for {index_name}: {str(e)}")
         return None
 
 def fetch_nse_stock_data(symbol, start_date, end_date):
