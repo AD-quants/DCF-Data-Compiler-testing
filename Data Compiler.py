@@ -60,97 +60,103 @@ nifty_indices = {
     'NIFTY MNC': '^CNXMNC',
 }
 
-# NSE API index name mapping (these are the exact names NSE API expects)
-nse_api_index_mapping = {
-    'NIFTY 50': 'NIFTY 50',
-    'NIFTY NEXT 50': 'NIFTY NEXT 50',
-    'NIFTY 100': 'NIFTY 100',
-    'NIFTY 200': 'NIFTY 200',
-    'NIFTY 500': 'NIFTY 500',
-    'NIFTY MIDCAP 50': 'NIFTY MIDCAP 50',
-    'NIFTY MIDCAP 100': 'NIFTY MIDCAP 100',
-    'NIFTY SMALLCAP 100': 'NIFTY SMLCAP 100',
-    'NIFTY BANK': 'NIFTY BANK',
-    'NIFTY FINANCIAL SERVICES': 'NIFTY FINANCIAL SERVICES',
-    'NIFTY PRIVATE BANK': 'NIFTY PRIVATE BANK',
-    'NIFTY PSU BANK': 'NIFTY PSU BANK',
-    'NIFTY AUTO': 'NIFTY AUTO',
-    'NIFTY IT': 'NIFTY IT',
-    'NIFTY PHARMA': 'NIFTY PHARMA',
-    'NIFTY FMCG': 'NIFTY FMCG',
-    'NIFTY METAL': 'NIFTY METAL',
-    'NIFTY REALTY': 'NIFTY REALTY',
-    'NIFTY MEDIA': 'NIFTY MEDIA',
-    'NIFTY ENERGY': 'NIFTY ENERGY',
-    'NIFTY INFRASTRUCTURE': 'NIFTY INFRASTRUCTURE',
-    'NIFTY PSE': 'NIFTY PSE',
-    'NIFTY CONSUMPTION': 'NIFTY CONSUMPTION',
-    'NIFTY COMMODITIES': 'NIFTY COMMODITIES',
-    'NIFTY OIL & GAS': 'NIFTY OIL AND GAS',
-    'NIFTY HEALTHCARE': 'NIFTY HEALTHCARE INDEX',
-    'NIFTY CONSUMER DURABLES': 'NIFTY CONSUMER DURABLES',
+# Investing.com index ID mapping for Indian indices
+investing_index_mapping = {
+    'NIFTY 50': {'id': '40820', 'name': 'nifty-50'},
+    'NIFTY BANK': {'id': '40823', 'name': 'nifty-bank'},
+    'NIFTY IT': {'id': '40825', 'name': 'nifty-it'},
+    'NIFTY PHARMA': {'id': '179881', 'name': 'nifty-pharma'},
+    'NIFTY AUTO': {'id': '179875', 'name': 'cnx-auto'},
+    'NIFTY FMCG': {'id': '179879', 'name': 'cnx-fmcg'},
+    'NIFTY METAL': {'id': '179883', 'name': 'cnx-metal'},
+    'NIFTY REALTY': {'id': '179885', 'name': 'cnx-realty'},
+    'NIFTY MEDIA': {'id': '179882', 'name': 'cnx-media'},
+    'NIFTY ENERGY': {'id': '179878', 'name': 'cnx-energy'},
+    'NIFTY FINANCIAL SERVICES': {'id': '40825', 'name': 'nifty-financial'},
+    'NIFTY INFRASTRUCTURE': {'id': '179880', 'name': 'cnx-infrastructure'},
+    'NIFTY PSE': {'id': '179887', 'name': 'cnx-pse'},
 }
 
-def fetch_nse_index_data(index_name, start_date, end_date):
-    """Fetch index data directly from niftyindices.com"""
+def fetch_investing_index_data(index_id, index_name, start_date, end_date):
+    """Fetch index data from Investing.com"""
     try:
-        # Nifty Indices API endpoint
-        base_url = "https://www.niftyindices.com"
-        api_url = 'https://www.niftyindices.com/Backpage.aspx/getHistoricaldatatabletoString'
+        from bs4 import BeautifulSoup
+        
+        # Investing.com historical data API endpoint
+        base_url = f"https://in.investing.com/indices/{index_name}-historical-data"
+        api_url = "https://in.investing.com/instruments/HistoricalDataAjax"
         
         # Headers to mimic browser
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "accept": "application/json, text/javascript, */*; q=0.01",
-            "accept-language": "en-US,en;q=0.9",
-            "content-type": "application/json; charset=UTF-8",
-            "x-requested-with": "XMLHttpRequest",
-            "origin": base_url,
-            "referer": f"{base_url}/"
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "*/*",
+            "Referer": base_url,
+            "Origin": "https://in.investing.com"
         }
         
-        # Create session and get cookies
+        # Create session and establish cookies by visiting the page first
         session = requests.Session()
         session.get(base_url, headers=headers, timeout=10)
         time.sleep(0.5)
         
-        # Format dates as DD-MMM-YYYY (e.g., 01-Jan-2021)
-        start_str = start_date.strftime('%d-%b-%Y')
-        end_str = end_date.strftime('%d-%b-%Y')
+        # Format dates as DD/MM/YYYY for Investing.com
+        start_str = start_date.strftime('%d/%m/%Y')
+        end_str = end_date.strftime('%d/%m/%Y')
         
-        # Payload for API request - exact format from the working example
+        # Prepare form data (this is what gets sent when you click Download or change dates)
         payload = {
-            'name': index_name,
-            'startDate': start_str,
-            'endDate': end_str
+            'curr_id': index_id,
+            'smlID': '300004',
+            'header': index_name.replace('-', ' ').title(),
+            'st_date': start_str,
+            'end_date': end_str,
+            'interval_sec': 'Daily',
+            'sort_col': 'date',
+            'sort_ord': 'DESC',
+            'action': 'historical_data'
         }
         
-        # Make API request
-        response = session.post(api_url, headers=headers, json=payload, timeout=15)
+        # Make POST request to get HTML table
+        response = session.post(api_url, data=payload, headers=headers, timeout=15)
         
         if response.status_code == 200:
-            data = response.json()
+            # Parse HTML response
+            soup = BeautifulSoup(response.text, 'html.parser')
+            table = soup.find('table')
             
-            # Parse the response - data comes in 'd' key as JSON string
-            if 'd' in data and data['d']:
-                # Parse the JSON string inside 'd'
-                df = pd.read_json(io.StringIO(data['d']))
+            if table:
+                # Extract data from table
+                rows = table.find('tbody').find_all('tr')
+                dates = []
+                prices = []
                 
-                if not df.empty and 'HistoricalDate' in df.columns and 'CLOSE' in df.columns:
-                    # Convert date column - format is DD-MMM-YYYY
-                    df['HistoricalDate'] = pd.to_datetime(df['HistoricalDate'], format='%d-%b-%Y')
-                    
-                    # Create series with date as index and Close as values
-                    result = pd.Series(
-                        data=df['CLOSE'].values,
-                        index=df['HistoricalDate']
-                    )
+                for row in rows:
+                    cols = row.find_all('td')
+                    if len(cols) >= 2:
+                        # First column is date, second is Price (Close)
+                        date_str = cols[0].get_text(strip=True)
+                        price_str = cols[1].get_text(strip=True).replace(',', '')
+                        
+                        try:
+                            # Parse date - format is "MMM DD, YYYY" (e.g., "Oct 31, 2025")
+                            date_obj = pd.to_datetime(date_str, format='%b %d, %Y')
+                            price_val = float(price_str)
+                            
+                            dates.append(date_obj)
+                            prices.append(price_val)
+                        except:
+                            continue
+                
+                if dates and prices:
+                    # Create series with date as index
+                    result = pd.Series(data=prices, index=dates)
                     return result
         
         return None
         
     except Exception as e:
-        # Silently fail - we'll show aggregate message
         return None
 
 def fetch_nse_stock_data(symbol, start_date, end_date):
@@ -173,11 +179,11 @@ def fetch_nse_stock_data(symbol, start_date, end_date):
         # Create session and establish cookies
         session = requests.Session()
         session.get(base_url, headers=headers, timeout=10)
-        time.sleep(1)
+        time.sleep(0.5)
         
         # Visit the equity page to establish proper session
         session.get(f"{page_url}?symbol={symbol}", headers=headers, timeout=10)
-        time.sleep(1)
+        time.sleep(0.5)
         
         # Add date range parameters
         params = {
@@ -207,8 +213,8 @@ def fetch_nse_stock_data(symbol, start_date, end_date):
     except Exception as e:
         return None
 
-def fill_missing_data_from_nse(df, tickers, selected_indices, start_date, end_date, price_type):
-    """Fill missing data using NSE website scraping"""
+def fill_missing_data_from_investing(df, tickers, selected_indices, start_date, end_date, price_type):
+    """Fill missing data using Investing.com scraping"""
     
     filled_count = 0
     total_missing = 0
@@ -225,11 +231,11 @@ def fill_missing_data_from_nse(df, tickers, selected_indices, start_date, end_da
             continue
         
         total_missing += missing_count
-        st.info(f"🔍 Found {missing_count} missing values in {col}, fetching from NSE...")
+        st.info(f"🔍 Found {missing_count} missing values in {col}, fetching from Investing.com...")
         
         # Determine if it's a stock or index
         if col in tickers:
-            # It's a stock - fetch from NSE
+            # It's a stock - try NSE first
             try:
                 nse_data = fetch_nse_stock_data(col, start_date, end_date)
                 if nse_data is not None:
@@ -240,30 +246,35 @@ def fill_missing_data_from_nse(df, tickers, selected_indices, start_date, end_da
                 
                 time.sleep(0.5)  # Rate limiting
             except Exception as e:
-                st.warning(f"Could not fill {col}: {str(e)}")
+                pass
         
         elif col in selected_indices:
-            # It's an index - fetch from Nifty Indices API
-            if col in nse_api_index_mapping:
+            # It's an index - fetch from Investing.com
+            if col in investing_index_mapping:
                 try:
-                    api_index_name = nse_api_index_mapping[col]
-                    nse_data = fetch_nse_index_data(api_index_name, start_date, end_date)
+                    index_info = investing_index_mapping[col]
+                    investing_data = fetch_investing_index_data(
+                        index_info['id'], 
+                        index_info['name'], 
+                        start_date, 
+                        end_date
+                    )
                     
-                    if nse_data is not None:
+                    if investing_data is not None:
                         for idx in df[missing_mask].index:
                             # Normalize the date to remove time component
                             date_only = pd.Timestamp(idx.date())
                             
                             # Try exact match
-                            if date_only in nse_data.index:
-                                df.loc[idx, col] = nse_data.loc[date_only]
+                            if date_only in investing_data.index:
+                                df.loc[idx, col] = investing_data.loc[date_only]
                                 filled_count += 1
                     
-                    time.sleep(1)  # Rate limiting - NSE is strict
+                    time.sleep(0.5)  # Rate limiting
                 except Exception as e:
-                    st.warning(f"Could not fill {col}: {str(e)}")
+                    pass
             else:
-                st.warning(f"⚠️ {col} not supported by NSE API - gaps will remain")
+                st.warning(f"⚠️ {col} not available on Investing.com - gaps will remain")
     
     return df, filled_count, total_missing
 
@@ -349,11 +360,21 @@ price_type = st.selectbox(
 
 # Gap filling option
 st.subheader("🔧 Data Quality")
-use_nse_backup = st.checkbox(
-    "Auto-fill missing data from NSE website (recommended)",
-    value=True,
-    help="If Yahoo Finance has gaps, automatically fetch missing data directly from NSE website"
-)
+col_gf1, col_gf2 = st.columns(2)
+
+with col_gf1:
+    use_investing_backup = st.checkbox(
+        "Auto-fill from Investing.com (recommended)",
+        value=True,
+        help="Fetch missing index data from Investing.com - works reliably for most indices"
+    )
+
+with col_gf2:
+    auto_forward_fill = st.checkbox(
+        "Forward-fill remaining gaps",
+        value=True,
+        help="Forward fill any remaining missing values with the last known price"
+    )
 
 # Add some spacing
 st.markdown("---")
@@ -451,11 +472,11 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 if missing_count_yf > 0:
                     st.warning(f"⚠️ Yahoo Finance data has {missing_count_yf} missing values")
                     
-                    # Attempt to fill with NSE scraping if enabled
-                    if use_nse_backup:
-                        st.info("🔄 Fetching missing data directly from NSE website...")
+                    # Attempt to fill with Investing.com scraping if enabled
+                    if use_investing_backup:
+                        st.info("🔄 Fetching missing data from Investing.com...")
                         
-                        # Determine date range for NSE scraping
+                        # Determine date range
                         if period_type == 'Predefined':
                             # Calculate approximate start date based on period
                             period_days = {
@@ -463,22 +484,40 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                                 '2y': 730, '5y': 1825, '10y': 3650, 'max': 7300
                             }
                             days = period_days.get(period, 365)
-                            nse_start = datetime.now() - timedelta(days=days)
-                            nse_end = datetime.now()
+                            fetch_start = datetime.now() - timedelta(days=days)
+                            fetch_end = datetime.now()
                         else:
-                            nse_start = start_date
-                            nse_end = end_date
+                            fetch_start = start_date
+                            fetch_end = end_date
                         
-                        df, filled_count, total_missing = fill_missing_data_from_nse(
-                            df, tickers, selected_indices, nse_start, nse_end, price_type
+                        df, filled_count, total_missing = fill_missing_data_from_investing(
+                            df, tickers, selected_indices, fetch_start, fetch_end, price_type
                         )
                         
                         if filled_count > 0:
-                            st.success(f"✅ Successfully filled {filled_count} values from NSE website!")
+                            st.success(f"✅ Successfully filled {filled_count} values from Investing.com!")
+                        
+                        remaining_missing = df.iloc[:, 1:].isna().sum().sum()
+                        
+                        # Apply forward fill if enabled and there are still gaps
+                        if auto_forward_fill and remaining_missing > 0:
+                            df.fillna(method='ffill', inplace=True)
+                            final_missing = df.iloc[:, 1:].isna().sum().sum()
+                            forward_filled = remaining_missing - final_missing
+                            if forward_filled > 0:
+                                st.info(f"ℹ️ Forward-filled {forward_filled} remaining values")
                         
                         remaining_missing = df.iloc[:, 1:].isna().sum().sum()
                         if remaining_missing > 0:
-                            st.warning(f"⚠️ {remaining_missing} values still missing (may be market holidays)")
+                            st.warning(f"⚠️ {remaining_missing} values still missing")
+                    elif auto_forward_fill:
+                        # Just forward fill without trying external sources
+                        df.fillna(method='ffill', inplace=True)
+                        final_missing = df.iloc[:, 1:].isna().sum().sum()
+                        forward_filled = missing_count_yf - final_missing
+                        st.info(f"ℹ️ Forward-filled {forward_filled} missing values")
+                        if final_missing > 0:
+                            st.warning(f"⚠️ {final_missing} values still missing")
                 else:
                     st.success("✅ No missing values in Yahoo Finance data!")
                 
@@ -594,9 +633,9 @@ st.markdown("""
 <div style='text-align: center; color: #666; font-size: 0.9em;'>
     <p>💡 <strong>Pro Tips:</strong></p>
     <ul style='list-style-type: none; padding: 0;'>
-        <li>✓ Hybrid approach: Yahoo Finance (fast) + NSE Website (accurate gap filling)</li>
+        <li>✓ Hybrid approach: Yahoo Finance (fast) + Investing.com (gap filling)</li>
         <li>✓ Use 'Close' price type to match NSE website prices</li>
-        <li>✓ Auto-fill scrapes data directly from niftyindices.com</li>
+        <li>✓ Auto-fill scrapes data directly from Investing.com</li>
         <li>✓ Excel files can be directly used in your DCF models</li>
     </ul>
 </div>
