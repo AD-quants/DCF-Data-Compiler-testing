@@ -92,24 +92,24 @@ def fetch_investing_index_data(index_id, index_name, start_date, end_date):
             "X-Requested-With": "XMLHttpRequest",
             "Content-Type": "application/x-www-form-urlencoded",
             "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
             "Referer": base_url,
             "Origin": "https://in.investing.com"
         }
         
         # Create session and establish cookies by visiting the page first
         session = requests.Session()
-        session.get(base_url, headers=headers, timeout=10)
-        time.sleep(0.5)
+        page_response = session.get(base_url, headers=headers, timeout=10)
+        time.sleep(1)
         
-        # Format dates as DD/MM/YYYY for Investing.com
-        start_str = start_date.strftime('%d/%m/%Y')
-        end_str = end_date.strftime('%d/%m/%Y')
+        # Format dates as MM/DD/YYYY for Investing.com (US format)
+        start_str = start_date.strftime('%m/%d/%Y')
+        end_str = end_date.strftime('%m/%d/%Y')
         
-        # Prepare form data (this is what gets sent when you click Download or change dates)
+        # Prepare form data - simplified version
         payload = {
             'curr_id': index_id,
             'smlID': '300004',
-            'header': index_name.replace('-', ' ').title(),
             'st_date': start_str,
             'end_date': end_str,
             'interval_sec': 'Daily',
@@ -124,11 +124,19 @@ def fetch_investing_index_data(index_id, index_name, start_date, end_date):
         if response.status_code == 200:
             # Parse HTML response
             soup = BeautifulSoup(response.text, 'html.parser')
-            table = soup.find('table')
+            table = soup.find('table', {'id': 'curr_table'})
+            
+            if not table:
+                table = soup.find('table')
             
             if table:
                 # Extract data from table
-                rows = table.find('tbody').find_all('tr')
+                tbody = table.find('tbody')
+                if not tbody:
+                    rows = table.find_all('tr')[1:]  # Skip header
+                else:
+                    rows = tbody.find_all('tr')
+                
                 dates = []
                 prices = []
                 
@@ -140,23 +148,33 @@ def fetch_investing_index_data(index_id, index_name, start_date, end_date):
                         price_str = cols[1].get_text(strip=True).replace(',', '')
                         
                         try:
-                            # Parse date - format is "MMM DD, YYYY" (e.g., "Oct 31, 2025")
-                            date_obj = pd.to_datetime(date_str, format='%b %d, %Y')
+                            # Parse date - format could be "MMM DD, YYYY" or "DD/MM/YYYY"
+                            try:
+                                date_obj = pd.to_datetime(date_str, format='%b %d, %Y')
+                            except:
+                                date_obj = pd.to_datetime(date_str, format='%d/%m/%Y')
+                            
                             price_val = float(price_str)
                             
                             dates.append(date_obj)
                             prices.append(price_val)
-                        except:
+                        except Exception as parse_error:
                             continue
                 
                 if dates and prices:
                     # Create series with date as index
                     result = pd.Series(data=prices, index=dates)
+                    st.success(f"✅ Fetched {len(dates)} records from Investing.com for {index_name}")
                     return result
+                else:
+                    st.warning(f"⚠️ No data found in table for {index_name}")
+        else:
+            st.warning(f"⚠️ HTTP {response.status_code} for {index_name}")
         
         return None
         
     except Exception as e:
+        st.warning(f"⚠️ Error fetching from Investing.com: {str(e)}")
         return None
 
 def fetch_nse_stock_data(symbol, start_date, end_date):
