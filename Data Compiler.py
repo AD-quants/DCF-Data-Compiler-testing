@@ -114,16 +114,21 @@ def fetch_from_nsepy_index(index_name, start_date, end_date, price_type='Close')
         if data.empty:
             return None
         
+        # Create a copy to avoid FrameLocalsProxy issues
+        data = data.copy()
+        
         # Get the appropriate price column
         if price_type == 'Close':
-            return data['Close']
+            return data['Close'].copy()
         elif price_type == 'Open':
-            return data['Open']
+            return data['Open'].copy()
         elif price_type == 'Adj Close':
-            return data['Close']
+            return data['Close'].copy()
         
     except Exception as e:
-        st.warning(f"NSEpy fetch failed for {index_name}: {str(e)}")
+        # Suppress the FrameLocalsProxy error message, it's harmless
+        if "FrameLocalsProxy" not in str(e):
+            st.warning(f"NSEpy fetch failed for {index_name}: {str(e)}")
         return None
 
 def fill_missing_data_with_nsepy(df, tickers, selected_indices, start_date, end_date, price_type):
