@@ -60,7 +60,7 @@ nifty_indices = {
     'NIFTY MNC': '^CNXMNC',
 }
 
-# NSE API index name mapping
+# NSE API index name mapping (these are the exact names NSE API expects)
 nse_api_index_mapping = {
     'NIFTY 50': 'NIFTY 50',
     'NIFTY NEXT 50': 'NIFTY NEXT 50',
@@ -69,7 +69,7 @@ nse_api_index_mapping = {
     'NIFTY 500': 'NIFTY 500',
     'NIFTY MIDCAP 50': 'NIFTY MIDCAP 50',
     'NIFTY MIDCAP 100': 'NIFTY MIDCAP 100',
-    'NIFTY SMALLCAP 100': 'NIFTY SMALLCAP 100',
+    'NIFTY SMALLCAP 100': 'NIFTY SMLCAP 100',
     'NIFTY BANK': 'NIFTY BANK',
     'NIFTY FINANCIAL SERVICES': 'NIFTY FINANCIAL SERVICES',
     'NIFTY PRIVATE BANK': 'NIFTY PRIVATE BANK',
@@ -87,66 +87,63 @@ nse_api_index_mapping = {
     'NIFTY CONSUMPTION': 'NIFTY CONSUMPTION',
     'NIFTY COMMODITIES': 'NIFTY COMMODITIES',
     'NIFTY OIL & GAS': 'NIFTY OIL AND GAS',
+    'NIFTY HEALTHCARE': 'NIFTY HEALTHCARE INDEX',
+    'NIFTY CONSUMER DURABLES': 'NIFTY CONSUMER DURABLES',
 }
 
 def fetch_nse_index_data(index_name, start_date, end_date):
-    """Fetch index data directly from NSE website"""
+    """Fetch index data directly from niftyindices.com"""
     try:
-        # NSE Historical Index Data page
-        base_url = "https://www.nseindia.com"
-        page_url = "https://www.nseindia.com/reports-indices-historical-index-data"
-        api_url = "https://www.nseindia.com/api/historical/indicesHistory"
+        # Nifty Indices API endpoint
+        base_url = "https://www.niftyindices.com"
+        api_url = 'https://www.niftyindices.com/Backpage.aspx/getHistoricaldatatabletoString'
         
         # Headers to mimic browser
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Referer": page_url,
-            "X-Requested-With": "XMLHttpRequest"
+            "accept": "application/json, text/javascript, */*; q=0.01",
+            "accept-language": "en-US,en;q=0.9",
+            "content-type": "application/json; charset=UTF-8",
+            "x-requested-with": "XMLHttpRequest",
+            "origin": base_url,
+            "referer": f"{base_url}/"
         }
         
-        # Create session and establish cookies by visiting the page first
+        # Create session and get cookies
         session = requests.Session()
         session.get(base_url, headers=headers, timeout=10)
-        time.sleep(1)  # Give time for cookies to set
+        time.sleep(0.5)
         
-        # Visit the historical data page
-        session.get(page_url, headers=headers, timeout=10)
-        time.sleep(1)
+        # Format dates as DD-MMM-YYYY (e.g., 01-Jan-2021)
+        start_str = start_date.strftime('%d-%b-%Y')
+        end_str = end_date.strftime('%d-%b-%Y')
         
-        # Format dates as DD-MM-YYYY
-        start_str = start_date.strftime('%d-%m-%Y')
-        end_str = end_date.strftime('%d-%m-%Y')
-        
-        # Prepare API parameters
-        params = {
-            'indexType': index_name,
-            'from': start_str,
-            'to': end_str
+        # Payload for API request - exact format from the working example
+        payload = {
+            'name': index_name,
+            'startDate': start_str,
+            'endDate': end_str
         }
         
         # Make API request
-        response = session.get(api_url, headers=headers, params=params, timeout=15)
+        response = session.post(api_url, headers=headers, json=payload, timeout=15)
         
         if response.status_code == 200:
             data = response.json()
             
-            # Parse the response - NSE returns data in 'data' key
-            if 'data' in data and 'indexCloseOnlineRecords' in data['data']:
-                records = data['data']['indexCloseOnlineRecords']
+            # Parse the response - data comes in 'd' key as JSON string
+            if 'd' in data and data['d']:
+                # Parse the JSON string inside 'd'
+                df = pd.read_json(io.StringIO(data['d']))
                 
-                if records:
-                    df = pd.DataFrame(records)
+                if not df.empty and 'HistoricalDate' in df.columns and 'CLOSE' in df.columns:
+                    # Convert date column - format is DD-MMM-YYYY
+                    df['HistoricalDate'] = pd.to_datetime(df['HistoricalDate'], format='%d-%b-%Y')
                     
-                    # Convert EOD_TIMESTAMP to datetime
-                    df['EOD_TIMESTAMP'] = pd.to_datetime(df['EOD_TIMESTAMP'], format='%d-%b-%Y')
-                    
-                    # Create series with date as index and CLOSE as values
+                    # Create series with date as index and Close as values
                     result = pd.Series(
-                        data=df['EOD_CLOSE_INDEX_VAL'].values,
-                        index=df['EOD_TIMESTAMP']
+                        data=df['CLOSE'].values,
+                        index=df['HistoricalDate']
                     )
                     return result
         
@@ -160,33 +157,44 @@ def fetch_nse_stock_data(symbol, start_date, end_date):
     """Fetch stock data from NSE website"""
     try:
         # NSE equity historical data endpoint
-        url = f"https://www.nseindia.com/api/historical/cm/equity?symbol={symbol}"
+        base_url = "https://www.nseindia.com"
+        page_url = "https://www.nseindia.com/get-quotes/equity"
+        api_url = "https://www.nseindia.com/api/historical/cm/equity"
         
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "accept": "application/json",
-            "accept-language": "en-US,en;q=0.9"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Referer": page_url,
+            "X-Requested-With": "XMLHttpRequest"
         }
         
-        # Create session
+        # Create session and establish cookies
         session = requests.Session()
-        session.get("https://www.nseindia.com", headers=headers)
+        session.get(base_url, headers=headers, timeout=10)
+        time.sleep(1)
+        
+        # Visit the equity page to establish proper session
+        session.get(f"{page_url}?symbol={symbol}", headers=headers, timeout=10)
+        time.sleep(1)
         
         # Add date range parameters
         params = {
+            'symbol': symbol,
             'series': '["EQ"]',
             'from': start_date.strftime('%d-%m-%Y'),
             'to': end_date.strftime('%d-%m-%Y')
         }
         
-        response = session.get(url, headers=headers, params=params, timeout=15)
+        response = session.get(api_url, headers=headers, params=params, timeout=15)
         
         if response.status_code == 200:
             data = response.json()
             
             if 'data' in data and data['data']:
                 df = pd.DataFrame(data['data'])
-                df['CH_TIMESTAMP'] = pd.to_datetime(df['CH_TIMESTAMP'])
+                df['CH_TIMESTAMP'] = pd.to_datetime(df['CH_TIMESTAMP'], format='%d-%b-%Y')
                 
                 result = pd.Series(
                     data=df['CH_CLOSING_PRICE'].values,
@@ -243,19 +251,15 @@ def fill_missing_data_from_nse(df, tickers, selected_indices, start_date, end_da
                     
                     if nse_data is not None:
                         for idx in df[missing_mask].index:
-                            date_only = idx.normalize()  # Remove time component
+                            # Normalize the date to remove time component
+                            date_only = pd.Timestamp(idx.date())
+                            
                             # Try exact match
                             if date_only in nse_data.index:
                                 df.loc[idx, col] = nse_data.loc[date_only]
                                 filled_count += 1
-                            else:
-                                # Try to find closest date
-                                closest_dates = nse_data.index[nse_data.index.searchsorted(date_only)]
-                                if len(closest_dates) > 0:
-                                    df.loc[idx, col] = nse_data.iloc[closest_dates[0]]
-                                    filled_count += 1
                     
-                    time.sleep(0.5)  # Rate limiting
+                    time.sleep(1)  # Rate limiting - NSE is strict
                 except Exception as e:
                     st.warning(f"Could not fill {col}: {str(e)}")
             else:
