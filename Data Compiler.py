@@ -3,6 +3,9 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 import io
+from nsepy import get_history
+from nsepy.derivatives import get_expiry_date
+import time
 
 # Page config
 st.set_page_config(
@@ -13,7 +16,7 @@ st.set_page_config(
 
 # Title and description
 st.title("📊 NSE Stock Data Downloader")
-st.markdown("Download Indian equity data for DCF analysis")
+st.markdown("Download Indian equity data for DCF analysis with automatic gap filling")
 
 # Nifty Indices dictionary - Complete list from NSE
 nifty_indices = {
@@ -57,6 +60,128 @@ nifty_indices = {
     'NIFTY SERVICES SECTOR': '^CNXSERVICE',
     'NIFTY MNC': '^CNXMNC',
 }
+
+# NSEpy index mapping (for indices that NSEpy supports)
+nsepy_index_mapping = {
+    'NIFTY 50': 'NIFTY 50',
+    'NIFTY BANK': 'NIFTY BANK',
+    'NIFTY IT': 'NIFTY IT',
+    'NIFTY PHARMA': 'NIFTY PHARMA',
+    'NIFTY AUTO': 'NIFTY AUTO',
+    'NIFTY FINANCIAL SERVICES': 'NIFTY FINANCIAL SERVICES',
+    'NIFTY FMCG': 'NIFTY FMCG',
+    'NIFTY METAL': 'NIFTY METAL',
+    'NIFTY REALTY': 'NIFTY REALTY',
+    'NIFTY ENERGY': 'NIFTY ENERGY',
+    'NIFTY INFRASTRUCTURE': 'NIFTY INFRASTRUCTURE',
+    'NIFTY MEDIA': 'NIFTY MEDIA',
+    'NIFTY PSU BANK': 'NIFTY PSU BANK',
+}
+
+def fetch_from_nsepy_stock(symbol, start_date, end_date, price_type='Close'):
+    """Fetch stock data from NSEpy"""
+    try:
+        data = get_history(
+            symbol=symbol,
+            start=start_date,
+            end=end_date
+        )
+        if data.empty:
+            return None
+        
+        # Get the appropriate price column
+        if price_type == 'Close':
+            return data['Close']
+        elif price_type == 'Open':
+            return data['Open']
+        elif price_type == 'Adj Close':
+            # NSEpy doesn't have Adj Close, use Close
+            return data['Close']
+        
+    except Exception as e:
+        st.warning(f"NSEpy fetch failed for {symbol}: {str(e)}")
+        return None
+
+def fetch_from_nsepy_index(index_name, start_date, end_date, price_type='Close'):
+    """Fetch index data from NSEpy"""
+    try:
+        data = get_history(
+            symbol=index_name,
+            start=start_date,
+            end=end_date,
+            index=True
+        )
+        if data.empty:
+            return None
+        
+        # Get the appropriate price column
+        if price_type == 'Close':
+            return data['Close']
+        elif price_type == 'Open':
+            return data['Open']
+        elif price_type == 'Adj Close':
+            return data['Close']
+        
+    except Exception as e:
+        st.warning(f"NSEpy fetch failed for {index_name}: {str(e)}")
+        return None
+
+def fill_missing_data_with_nsepy(df, tickers, selected_indices, start_date, end_date, price_type):
+    """Fill missing data using NSEpy as backup source"""
+    
+    filled_count = 0
+    total_missing = 0
+    
+    # Get all columns except Date
+    data_columns = [col for col in df.columns if col != 'Date']
+    
+    for col in data_columns:
+        # Check if column has missing values
+        missing_mask = df[col].isna()
+        missing_count = missing_mask.sum()
+        
+        if missing_count == 0:
+            continue
+        
+        total_missing += missing_count
+        st.info(f"🔍 Found {missing_count} missing values in {col}, attempting to fill from NSE...")
+        
+        # Determine if it's a stock or index
+        if col in tickers:
+            # It's a stock
+            try:
+                nsepy_data = fetch_from_nsepy_stock(col, start_date, end_date, price_type)
+                if nsepy_data is not None:
+                    # Fill only the missing values
+                    for idx in df[missing_mask].index:
+                        if idx in nsepy_data.index:
+                            df.loc[idx, col] = nsepy_data.loc[idx]
+                            filled_count += 1
+                
+                time.sleep(0.5)  # Rate limiting
+            except Exception as e:
+                st.warning(f"Could not fill {col}: {str(e)}")
+        
+        elif col in selected_indices:
+            # It's an index
+            if col in nsepy_index_mapping:
+                try:
+                    nsepy_index_name = nsepy_index_mapping[col]
+                    nsepy_data = fetch_from_nsepy_index(nsepy_index_name, start_date, end_date, price_type)
+                    if nsepy_data is not None:
+                        # Fill only the missing values
+                        for idx in df[missing_mask].index:
+                            if idx in nsepy_data.index:
+                                df.loc[idx, col] = nsepy_data.loc[idx]
+                                filled_count += 1
+                    
+                    time.sleep(0.5)  # Rate limiting
+                except Exception as e:
+                    st.warning(f"Could not fill {col}: {str(e)}")
+            else:
+                st.warning(f"⚠️ {col} not supported by NSEpy backup - gaps will remain")
+    
+    return df, filled_count, total_missing
 
 # Create three columns for better layout
 col1, col2 = st.columns([1, 1])
@@ -138,6 +263,14 @@ price_type = st.selectbox(
     help="Close: Actual closing price (matches NSE) | Adj Close: Adjusted for splits/dividends | Open: Opening price"
 )
 
+# Gap filling option
+st.subheader("🔧 Data Quality")
+use_nsepy_backup = st.checkbox(
+    "Auto-fill missing data from NSE (recommended)",
+    value=True,
+    help="If Yahoo Finance has gaps, automatically fetch missing data from NSE using NSEpy"
+)
+
 # Add some spacing
 st.markdown("---")
 
@@ -150,7 +283,7 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
     elif period_type == 'Custom Date Range' and start_date >= end_date:
         st.error("⚠️ Start date must be before end date")
     else:
-        with st.spinner("Fetching data from Yahoo Finance..."):
+        with st.spinner("📡 Fetching data from Yahoo Finance..."):
             try:
                 # Prepare symbols
                 stock_symbols = [f"{ticker}.NS" for ticker in tickers]
@@ -199,16 +332,13 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                         st.error("⚠️ Please check the ticker symbols and try again")
                         st.stop()
                 
-                # Handle single vs multiple tickers - FIXED to use correct Close price
+                # Handle single vs multiple tickers
                 if len(all_symbols) == 1:
-                    # For single ticker, structure is simple
                     df = pd.DataFrame({
                         'Date': data.index,
                         all_symbols[0]: data[price_type].values
                     })
                 else:
-                    # For multiple tickers, data has MultiIndex columns
-                    # Explicitly extract the selected price type
                     if isinstance(data.columns, pd.MultiIndex):
                         df = data[price_type].copy()
                     else:
@@ -228,8 +358,45 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 ordered_columns = ['Date'] + tickers + selected_indices
                 df = df[ordered_columns]
                 
-                # Format date as dd-mm-yyyy for display but keep as datetime
+                # Format date as datetime
                 df['Date'] = pd.to_datetime(df['Date'])
+                
+                # Count missing values before filling
+                missing_count_yf = df.iloc[:, 1:].isna().sum().sum()
+                
+                if missing_count_yf > 0:
+                    st.warning(f"⚠️ Yahoo Finance data has {missing_count_yf} missing values")
+                    
+                    # Attempt to fill with NSEpy if enabled
+                    if use_nsepy_backup:
+                        st.info("🔄 Attempting to fill gaps using NSE data...")
+                        
+                        # Determine date range for NSEpy
+                        if period_type == 'Predefined':
+                            # Calculate approximate start date based on period
+                            period_days = {
+                                '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365,
+                                '2y': 730, '5y': 1825, '10y': 3650, 'max': 7300
+                            }
+                            days = period_days.get(period, 365)
+                            nsepy_start = datetime.now() - timedelta(days=days)
+                            nsepy_end = datetime.now()
+                        else:
+                            nsepy_start = start_date
+                            nsepy_end = end_date
+                        
+                        df, filled_count, total_missing = fill_missing_data_with_nsepy(
+                            df, tickers, selected_indices, nsepy_start, nsepy_end, price_type
+                        )
+                        
+                        if filled_count > 0:
+                            st.success(f"✅ Successfully filled {filled_count} values from NSE!")
+                        
+                        remaining_missing = df.iloc[:, 1:].isna().sum().sum()
+                        if remaining_missing > 0:
+                            st.warning(f"⚠️ {remaining_missing} values still missing (not available from either source)")
+                else:
+                    st.success("✅ No missing values in Yahoo Finance data!")
                 
                 # Round all price columns to 2 decimal places
                 for col in df.columns:
@@ -240,7 +407,7 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 st.session_state['dataframe'] = df
                 st.session_state['symbols'] = tickers + selected_indices
                 
-                st.success(f"✅ Successfully fetched {len(df)} rows of data!")
+                st.success(f"✅ Successfully created dataset with {len(df)} rows!")
                 
             except Exception as e:
                 st.error(f"❌ Error fetching data: {str(e)}")
@@ -267,14 +434,26 @@ if 'dataframe' in st.session_state:
     st.subheader("📈 Quick Statistics")
     col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
     
+    # Count current missing values
+    missing_count = df.iloc[:, 1:].isna().sum().sum()
+    
     with col_stats1:
         st.metric("Total Rows", len(df))
     with col_stats2:
-        st.metric("Date Range", f"{(df['Date'].max() - df['Date'].min()).days} days")
+        st.metric("Missing Values", missing_count)
     with col_stats3:
         st.metric("Start Date", df['Date'].min().strftime('%d-%m-%Y'))
     with col_stats4:
         st.metric("End Date", df['Date'].max().strftime('%d-%m-%Y'))
+    
+    # Show which columns have missing data
+    if missing_count > 0:
+        st.markdown("**⚠️ Columns with Missing Data:**")
+        missing_by_col = df.iloc[:, 1:].isna().sum()
+        missing_by_col = missing_by_col[missing_by_col > 0]
+        if not missing_by_col.empty:
+            for col, count in missing_by_col.items():
+                st.text(f"  • {col}: {count} missing values")
     
     # Download section
     st.markdown("---")
@@ -283,23 +462,21 @@ if 'dataframe' in st.session_state:
     col_dl1, col_dl2 = st.columns(2)
     
     with col_dl1:
-        # Excel download - date will be stored as datetime
+        # Excel download
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            # Create a copy for Excel with proper date format
             df_excel = df.copy()
             df_excel.to_excel(writer, index=False, sheet_name='Stock Data')
             
-            # Format the date column in Excel
             workbook = writer.book
             worksheet = writer.sheets['Stock Data']
             
-            # Apply date format to Date column (column A)
+            # Format date column
             for row in range(2, len(df_excel) + 2):
                 cell = worksheet.cell(row=row, column=1)
                 cell.number_format = 'DD-MM-YYYY'
             
-            # Apply number format with 2 decimals to all price columns
+            # Format price columns
             for col_idx, col_name in enumerate(df_excel.columns, start=1):
                 if col_name != 'Date':
                     for row in range(2, len(df_excel) + 2):
@@ -315,7 +492,7 @@ if 'dataframe' in st.session_state:
         )
     
     with col_dl2:
-        # CSV download with formatted dates
+        # CSV download
         df_csv = df.copy()
         df_csv['Date'] = df_csv['Date'].dt.strftime('%d-%m-%Y')
         csv = df_csv.to_csv(index=False)
@@ -333,9 +510,9 @@ st.markdown("""
 <div style='text-align: center; color: #666; font-size: 0.9em;'>
     <p>💡 <strong>Pro Tips:</strong></p>
     <ul style='list-style-type: none; padding: 0;'>
-        <li>✓ No need to add .NS suffix - it's added automatically</li>
+        <li>✓ Hybrid approach: Yahoo Finance (fast) + NSE (accurate gap filling)</li>
         <li>✓ Use 'Close' price type to match NSE website prices</li>
-        <li>✓ Data is fetched from Yahoo Finance using yfinance</li>
+        <li>✓ Auto-fill feature uses NSEpy to fetch missing data from NSE</li>
         <li>✓ Excel files can be directly used in your DCF models</li>
     </ul>
 </div>
