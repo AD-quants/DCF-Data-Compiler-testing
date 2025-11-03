@@ -17,6 +17,66 @@ st.set_page_config(
 st.title("📊 NSE Stock Data Downloader")
 st.markdown("Download Indian equity data for DCF analysis with automatic gap filling from NSE")
 
+# NIFTY Indices mapping - MOVED HERE (at module level)
+nifty_indices = {
+    # Broad Market Indices
+    'NIFTY 50': '^NSEI',
+    'NIFTY NEXT 50': '^NIFTYNXT50',
+    'NIFTY 100': '^CNX100',
+    'NIFTY 200': '^CNX200',
+    'NIFTY 500': '^CNX500',
+    'NIFTY MIDCAP 50': '^NSMIDCP',
+    'NIFTY MIDCAP 100': '^NIFTY_MIDCAP_100',
+    'NIFTY SMALLCAP 100': '^NIFTY_SMLCAP_100',
+    
+    # Banking & Financial Services
+    'NIFTY BANK': '^NSEBANK',
+    'NIFTY FINANCIAL SERVICES': '^CNXFINANCE',
+    'NIFTY PRIVATE BANK': '^NIFTYPVTBANK',
+    'NIFTY PSU BANK': '^CNXPSUBANK',
+    'NIFTY FINANCIAL SERVICES 25/50': '^NIFTY_FIN_SERVICE25_50',
+    
+    # Sectoral Indices
+    'NIFTY AUTO': '^CNXAUTO',
+    'NIFTY IT': '^CNXIT',
+    'NIFTY PHARMA': '^CNXPHARMA',
+    'NIFTY FMCG': '^CNXFMCG',
+    'NIFTY METAL': '^CNXMETAL',
+    'NIFTY REALTY': '^CNXREALTY',
+    'NIFTY MEDIA': '^CNXMEDIA',
+    'NIFTY HEALTHCARE': '^CNXHEALTH',
+    'NIFTY CONSUMER DURABLES': '^CNXCONSUMERDUR',
+    'NIFTY OIL & GAS': '^CNXOILGAS',
+    
+    # Energy & Infrastructure
+    'NIFTY ENERGY': '^CNXENERGY',
+    'NIFTY INFRASTRUCTURE': '^CNXINFRA',
+    'NIFTY PSE': '^CNXPSE',
+    
+    # Other Sectoral
+    'NIFTY CONSUMPTION': '^CNXCONSUMPTION',
+    'NIFTY COMMODITIES': '^CNXCOMMODITIES',
+    'NIFTY SERVICES SECTOR': '^CNXSERVICE',
+    'NIFTY MNC': '^CNXMNC',
+}
+
+# Investing.com index ID mapping for Indian indices
+investing_index_mapping = {
+    'NIFTY 50': {'id': '40820', 'name': 'nifty-50'},
+    'NIFTY BANK': {'id': '40823', 'name': 'nifty-bank'},
+    'NIFTY IT': {'id': '40825', 'name': 'nifty-it'},
+    'NIFTY PHARMA': {'id': '179881', 'name': 'nifty-pharma'},
+    'NIFTY AUTO': {'id': '179875', 'name': 'cnx-auto'},
+    'NIFTY FMCG': {'id': '179879', 'name': 'cnx-fmcg'},
+    'NIFTY METAL': {'id': '179883', 'name': 'cnx-metal'},
+    'NIFTY REALTY': {'id': '179885', 'name': 'cnx-realty'},
+    'NIFTY MEDIA': {'id': '179882', 'name': 'cnx-media'},
+    'NIFTY ENERGY': {'id': '179878', 'name': 'cnx-energy'},
+    'NIFTY FINANCIAL SERVICES': {'id': '40825', 'name': 'nifty-financial'},
+    'NIFTY INFRASTRUCTURE': {'id': '179880', 'name': 'cnx-infrastructure'},
+    'NIFTY PSE': {'id': '179887', 'name': 'cnx-pse'},
+}
+
 async def fetch_nse_data_with_playwright(index_name, target_date):
     """Use Playwright to search Google and get NSE historical data"""
     try:
@@ -117,65 +177,8 @@ def fetch_missing_data_playwright(df, selected_indices, start_date, end_date):
             st.warning(f"⚠️ Only fetched first 5 of {len(missing_dates)} missing dates to save time")
     
     return df, filled_count
-    # Broad Market Indices
-    nifty_indices = {
-    'NIFTY 50': '^NSEI',
-    'NIFTY NEXT 50': '^NIFTYNXT50',
-    'NIFTY 100': '^CNX100',
-    'NIFTY 200': '^CNX200',
-    'NIFTY 500': '^CNX500',
-    'NIFTY MIDCAP 50': '^NSMIDCP',
-    'NIFTY MIDCAP 100': '^NIFTY_MIDCAP_100',
-    'NIFTY SMALLCAP 100': '^NIFTY_SMLCAP_100',
-    
-    # Banking & Financial Services
-    'NIFTY BANK': '^NSEBANK',
-    'NIFTY FINANCIAL SERVICES': '^CNXFINANCE',
-    'NIFTY PRIVATE BANK': '^NIFTYPVTBANK',
-    'NIFTY PSU BANK': '^CNXPSUBANK',
-    'NIFTY FINANCIAL SERVICES 25/50': '^NIFTY_FIN_SERVICE25_50',
-    
-    # Sectoral Indices
-    'NIFTY AUTO': '^CNXAUTO',
-    'NIFTY IT': '^CNXIT',
-    'NIFTY PHARMA': '^CNXPHARMA',
-    'NIFTY FMCG': '^CNXFMCG',
-    'NIFTY METAL': '^CNXMETAL',
-    'NIFTY REALTY': '^CNXREALTY',
-    'NIFTY MEDIA': '^CNXMEDIA',
-    'NIFTY HEALTHCARE': '^CNXHEALTH',
-    'NIFTY CONSUMER DURABLES': '^CNXCONSUMERDUR',
-    'NIFTY OIL & GAS': '^CNXOILGAS',
-    
-    # Energy & Infrastructure
-    'NIFTY ENERGY': '^CNXENERGY',
-    'NIFTY INFRASTRUCTURE': '^CNXINFRA',
-    'NIFTY PSE': '^CNXPSE',
-    
-    # Other Sectoral
-    'NIFTY CONSUMPTION': '^CNXCONSUMPTION',
-    'NIFTY COMMODITIES': '^CNXCOMMODITIES',
-    'NIFTY SERVICES SECTOR': '^CNXSERVICE',
-    'NIFTY MNC': '^CNXMNC',
-}
 
-# Investing.com index ID mapping for Indian indices
-investing_index_mapping = {
-    'NIFTY 50': {'id': '40820', 'name': 'nifty-50'},
-    'NIFTY BANK': {'id': '40823', 'name': 'nifty-bank'},
-    'NIFTY IT': {'id': '40825', 'name': 'nifty-it'},
-    'NIFTY PHARMA': {'id': '179881', 'name': 'nifty-pharma'},
-    'NIFTY AUTO': {'id': '179875', 'name': 'cnx-auto'},
-    'NIFTY FMCG': {'id': '179879', 'name': 'cnx-fmcg'},
-    'NIFTY METAL': {'id': '179883', 'name': 'cnx-metal'},
-    'NIFTY REALTY': {'id': '179885', 'name': 'cnx-realty'},
-    'NIFTY MEDIA': {'id': '179882', 'name': 'cnx-media'},
-    'NIFTY ENERGY': {'id': '179878', 'name': 'cnx-energy'},
-    'NIFTY FINANCIAL SERVICES': {'id': '40825', 'name': 'nifty-financial'},
-    'NIFTY INFRASTRUCTURE': {'id': '179880', 'name': 'cnx-infrastructure'},
-    'NIFTY PSE': {'id': '179887', 'name': 'cnx-pse'},
-}
-
+# Rest of the functions remain the same...
 def fetch_investing_index_data(index_id, index_name, start_date, end_date):
     """Fetch index data using investpy library"""
     try:
