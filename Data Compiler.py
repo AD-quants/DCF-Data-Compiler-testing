@@ -17,8 +17,106 @@ st.set_page_config(
 st.title("📊 NSE Stock Data Downloader")
 st.markdown("Download Indian equity data for DCF analysis with automatic gap filling from NSE")
 
-# Nifty Indices dictionary - Complete list from NSE
-nifty_indices = {
+async def fetch_nse_data_with_playwright(index_name, target_date):
+    """Use Playwright to search Google and get NSE historical data"""
+    try:
+        async with async_playwright() as p:
+            # Launch browser in headless mode
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            page = await context.new_page()
+            
+            # Format date for search query
+            date_str = target_date.strftime('%d %B %Y')  # e.g., "01 January 2021"
+            
+            # Google search query
+            search_query = f"NSE {index_name} historical data {date_str}"
+            google_url = f"https://www.google.com/search?q={search_query.replace(' ', '+')}"
+            
+            # Go to Google search
+            await page.goto(google_url, wait_until='domcontentloaded', timeout=30000)
+            await page.wait_for_timeout(2000)
+            
+            # Look for NSE India link in search results
+            nse_link = await page.query_selector('a[href*="nseindia.com"]')
+            
+            if nse_link:
+                href = await nse_link.get_attribute('href')
+                
+                # Visit NSE page
+                await page.goto(href, wait_until='domcontentloaded', timeout=30000)
+                await page.wait_for_timeout(3000)
+                
+                # Try to find the closing price on the page
+                # Look for table or price elements
+                price_element = await page.query_selector('text=/Close/i')
+                
+                if price_element:
+                    # Try to extract the price near "Close" text
+                    parent = await price_element.evaluate('el => el.parentElement')
+                    text_content = await page.evaluate('el => el.textContent', parent)
+                    
+                    # Extract numeric value
+                    import re
+                    numbers = re.findall(r'[\d,]+\.?\d*', text_content)
+                    if numbers:
+                        price = float(numbers[0].replace(',', ''))
+                        await browser.close()
+                        return price
+            
+            await browser.close()
+            return None
+            
+    except Exception as e:
+        return None
+
+def fetch_missing_data_playwright(df, selected_indices, start_date, end_date):
+    """Fill missing index data using Playwright browser automation"""
+    
+    filled_count = 0
+    
+    # Get all index columns
+    index_columns = [col for col in df.columns if col in selected_indices and col != 'Date']
+    
+    for col in index_columns:
+        # Check if column has missing values
+        missing_mask = df[col].isna()
+        missing_count = missing_mask.sum()
+        
+        if missing_count == 0:
+            continue
+        
+        st.info(f"🤖 Using browser automation to fetch {missing_count} missing values for {col}...")
+        
+        # Get missing dates
+        missing_dates = df[missing_mask]['Date'].tolist()
+        
+        # Limit to first 5 missing dates to avoid long wait times
+        fetch_dates = missing_dates[:min(5, len(missing_dates))]
+        
+        for missing_date in fetch_dates:
+            try:
+                # Use asyncio to run the async function
+                price = asyncio.run(fetch_nse_data_with_playwright(col, missing_date))
+                
+                if price is not None:
+                    # Find the row index and fill the value
+                    row_idx = df[df['Date'] == missing_date].index[0]
+                    df.loc[row_idx, col] = price
+                    filled_count += 1
+                    st.success(f"✅ Found {col} price for {missing_date.strftime('%d-%m-%Y')}: {price}")
+                else:
+                    st.warning(f"⚠️ Could not find {col} price for {missing_date.strftime('%d-%m-%Y')}")
+                
+            except Exception as e:
+                st.warning(f"⚠️ Error fetching {col} for {missing_date.strftime('%d-%m-%Y')}: {str(e)}")
+        
+        if len(missing_dates) > 5:
+            st.warning(f"⚠️ Only fetched first 5 of {len(missing_dates)} missing dates to save time")
+    
+    return df, filled_count
     # Broad Market Indices
     'NIFTY 50': '^NSEI',
     'NIFTY NEXT 50': '^NIFTYNXT50',
@@ -332,18 +430,17 @@ st.subheader("🔧 Data Quality")
 col_gf1, col_gf2 = st.columns(2)
 
 with col_gf1:
-    use_investing_backup = st.checkbox(
-        "Auto-fill from Investing.com (recommended)",
+    use_playwright = st.checkbox(
+        "Auto-fill using browser automation (Playwright)",
         value=True,
-        help="Fetch missing index data from Investing.com - works reliably for most indices"
+        help="Uses real browser to search Google and get NSE data - slower but reliable"
     )
 
 with col_gf2:
-    auto_forward_fill = st.checkbox(
-        "Forward-fill remaining gaps",
-        value=True,
-        help="Forward fill any remaining missing values with the last known price"
-    )
+    if use_playwright:
+        st.info("🤖 Browser will search Google for missing data")
+    else:
+        st.info("ℹ️ Missing values will be left blank")
 
 # Add some spacing
 st.markdown("---")
@@ -435,58 +532,30 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 # Format date as datetime
                 df['Date'] = pd.to_datetime(df['Date'])
                 
-                # Count missing values before filling
-                missing_count_yf = df.iloc[:, 1:].isna().sum().sum()
+                # Count missing values before handling
+                missing_count_before = df.iloc[:, 1:].isna().sum().sum()
                 
-                if missing_count_yf > 0:
-                    st.warning(f"⚠️ Yahoo Finance data has {missing_count_yf} missing values")
+                if missing_count_before > 0:
+                    st.warning(f"⚠️ Yahoo Finance data has {missing_count_before} missing values")
                     
-                    # Attempt to fill with Investing.com scraping if enabled
-                    if use_investing_backup:
-                        st.info("🔄 Fetching missing data from Investing.com...")
+                    # Use Playwright if enabled
+                    if use_playwright:
+                        st.info("🤖 Starting browser automation to fetch missing data...")
                         
-                        # Determine date range
-                        if period_type == 'Predefined':
-                            # Calculate approximate start date based on period
-                            period_days = {
-                                '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365,
-                                '2y': 730, '5y': 1825, '10y': 3650, 'max': 7300
-                            }
-                            days = period_days.get(period, 365)
-                            fetch_start = datetime.now() - timedelta(days=days)
-                            fetch_end = datetime.now()
-                        else:
-                            fetch_start = start_date
-                            fetch_end = end_date
-                        
-                        df, filled_count, total_missing = fill_missing_data_from_investing(
-                            df, tickers, selected_indices, fetch_start, fetch_end, price_type
+                        df, filled_count = fetch_missing_data_playwright(
+                            df, selected_indices, 
+                            df['Date'].min(), df['Date'].max()
                         )
                         
                         if filled_count > 0:
-                            st.success(f"✅ Successfully filled {filled_count} values from Investing.com!")
-                        
-                        remaining_missing = df.iloc[:, 1:].isna().sum().sum()
-                        
-                        # Apply forward fill if enabled and there are still gaps
-                        if auto_forward_fill and remaining_missing > 0:
-                            df.fillna(method='ffill', inplace=True)
-                            final_missing = df.iloc[:, 1:].isna().sum().sum()
-                            forward_filled = remaining_missing - final_missing
-                            if forward_filled > 0:
-                                st.info(f"ℹ️ Forward-filled {forward_filled} remaining values")
+                            st.success(f"✅ Successfully filled {filled_count} values using browser automation!")
                         
                         remaining_missing = df.iloc[:, 1:].isna().sum().sum()
                         if remaining_missing > 0:
                             st.warning(f"⚠️ {remaining_missing} values still missing")
-                    elif auto_forward_fill:
-                        # Just forward fill without trying external sources
-                        df.fillna(method='ffill', inplace=True)
-                        final_missing = df.iloc[:, 1:].isna().sum().sum()
-                        forward_filled = missing_count_yf - final_missing
-                        st.info(f"ℹ️ Forward-filled {forward_filled} missing values")
-                        if final_missing > 0:
-                            st.warning(f"⚠️ {final_missing} values still missing")
+                    else:
+                        st.info("ℹ️ Keeping missing values blank for manual review")
+                
                 else:
                     st.success("✅ No missing values in Yahoo Finance data!")
                 
@@ -602,9 +671,9 @@ st.markdown("""
 <div style='text-align: center; color: #666; font-size: 0.9em;'>
     <p>💡 <strong>Pro Tips:</strong></p>
     <ul style='list-style-type: none; padding: 0;'>
-        <li>✓ Hybrid approach: Yahoo Finance (fast) + Investing.com (gap filling)</li>
+        <li>✓ Data source: Yahoo Finance (fast and reliable)</li>
+        <li>✓ Browser automation: Playwright searches Google for missing data</li>
         <li>✓ Use 'Close' price type to match NSE website prices</li>
-        <li>✓ Auto-fill scrapes data directly from Investing.com</li>
         <li>✓ Excel files can be directly used in your DCF models</li>
     </ul>
 </div>
