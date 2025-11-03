@@ -118,6 +118,7 @@ def fetch_missing_data_playwright(df, selected_indices, start_date, end_date):
     
     return df, filled_count
     # Broad Market Indices
+    nifty_indices = {
     'NIFTY 50': '^NSEI',
     'NIFTY NEXT 50': '^NIFTYNXT50',
     'NIFTY 100': '^CNX100',
