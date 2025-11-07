@@ -15,6 +15,9 @@ st.set_page_config(
 st.title("📊 NSE Stock Data Downloader")
 st.markdown("Download Indian equity data for DCF analysis")
 
+# Disclaimer
+st.info("ℹ️ **Disclaimer:** Data is sourced from Yahoo Finance and may contain missing values for certain dates due to holidays, trading suspensions, or data availability issues. Please verify data completeness before use in financial models.")
+
 # Nifty Indices dictionary - Complete list from NSE
 nifty_indices = {
     # Broad Market Indices
@@ -63,6 +66,10 @@ col1, col2 = st.columns([1, 1])
 
 with col1:
     st.subheader("🎯 Stock Tickers")
+    
+    # Initialize session state for tickers
+    if 'ticker_count' not in st.session_state:
+        st.session_state.ticker_count = 1
     
     tickers_input = st.text_area(
         "Enter stock tickers (one per line, without .NS)",
@@ -129,15 +136,6 @@ else:
         )
     period = None
 
-# Price type selection
-st.subheader("💰 Price Type")
-price_type = st.selectbox(
-    "Select Price Column",
-    options=['Close', 'Adj Close', 'Open'],
-    index=0,
-    help="Close: Actual closing price (matches NSE) | Adj Close: Adjusted for splits/dividends | Open: Opening price"
-)
-
 # Add some spacing
 st.markdown("---")
 
@@ -157,63 +155,18 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 index_symbols = [nifty_indices[idx] for idx in selected_indices]
                 all_symbols = stock_symbols + index_symbols
                 
-                # Fetch data with auto_adjust=False to get raw unadjusted prices
+                # Fetch data
                 if period_type == 'Predefined':
-                    data = yf.download(all_symbols, period=period, auto_adjust=False, progress=False)
+                    data = yf.download(all_symbols, period=period, progress=False)
                 else:
                     data = yf.download(
                         all_symbols, 
                         start=start_date, 
                         end=end_date,
-                        auto_adjust=False,
                         progress=False
                     )
                 
-                # Check if data is empty or invalid
-                if data.empty:
-                    st.error("❌ No data received. Please check the ticker symbols and try again.")
-                    st.error("⚠️ Make sure the tickers are valid NSE symbols (e.g., RELIANCE, TCS, INFY)")
-                    st.stop()
-                
-                # Check if any columns have all NaN values (invalid ticker)
-                if len(all_symbols) == 1:
-                    if data[price_type].isna().all():
-                        st.error("❌ Invalid ticker symbol. No data available.")
-                        st.error("⚠️ Please verify the ticker symbol is correct and listed on NSE")
-                        st.stop()
-                else:
-                    # For multiple symbols, check if all price data is NaN
-                    if isinstance(data.columns, pd.MultiIndex):
-                        price_data = data[price_type]
-                    else:
-                        price_data = data
-                    
-                    # Check which symbols have no data
-                    invalid_symbols = []
-                    for symbol in all_symbols:
-                        if symbol in price_data.columns and price_data[symbol].isna().all():
-                            invalid_symbols.append(symbol)
-                    
-                    if invalid_symbols:
-                        st.error(f"❌ Invalid ticker(s): {', '.join(invalid_symbols)}")
-                        st.error("⚠️ Please check the ticker symbols and try again")
-                        st.stop()
-                
-                # Handle single vs multiple tickers - FIXED to use correct Close price
-                if len(all_symbols) == 1:
-                    # For single ticker, structure is simple
-                    df = pd.DataFrame({
-                        'Date': data.index,
-                        all_symbols[0]: data[price_type].values
-                    })
-                else:
-                    # For multiple tickers, data has MultiIndex columns
-                    # Explicitly extract the selected price type
-                    if isinstance(data.columns, pd.MultiIndex):
-                        df = data[price_type].copy()
-                    else:
-                        df = data[[price_type]].copy()
-                    df.reset_index(inplace=True)
+
                 
                 # Rename columns to remove .NS and use friendly index names
                 column_mapping = {'Date': 'Date'}
@@ -228,14 +181,6 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 ordered_columns = ['Date'] + tickers + selected_indices
                 df = df[ordered_columns]
                 
-                # Format date as dd-mm-yyyy for display but keep as datetime
-                df['Date'] = pd.to_datetime(df['Date'])
-                
-                # Round all price columns to 2 decimal places
-                for col in df.columns:
-                    if col != 'Date':
-                        df[col] = df[col].astype(float).round(2)
-                
                 # Store in session state
                 st.session_state['dataframe'] = df
                 st.session_state['symbols'] = tickers + selected_indices
@@ -244,7 +189,13 @@ if st.button("🚀 Create Dataset", type="primary", use_container_width=True):
                 
             except Exception as e:
                 st.error(f"❌ Error fetching data: {str(e)}")
-                st.error("⚠️ Please check the ticker symbols entered and try again.")
+                st.info("💡 Make sure the ticker symbols are valid and have data available for the selected period")
+                
+                # Show which symbols were attempted
+                with st.expander("Debug Information"):
+                    st.write("**Attempted symbols:**")
+                    for symbol in all_symbols:
+                        st.write(f"- {symbol}")
 
 # Display data and download option
 if 'dataframe' in st.session_state:
@@ -253,12 +204,8 @@ if 'dataframe' in st.session_state:
     
     df = st.session_state['dataframe']
     
-    # Create display dataframe with formatted dates
-    df_display = df.copy()
-    df_display['Date'] = df_display['Date'].dt.strftime('%d-%m-%Y')
-    
-    # Display preview without index
-    st.dataframe(df_display.head(10), use_container_width=True, hide_index=True)
+    # Display preview
+    st.dataframe(df.head(10), use_container_width=True)
     
     if len(df) > 10:
         st.info(f"Showing first 10 of {len(df)} rows")
@@ -272,9 +219,9 @@ if 'dataframe' in st.session_state:
     with col_stats2:
         st.metric("Date Range", f"{(df['Date'].max() - df['Date'].min()).days} days")
     with col_stats3:
-        st.metric("Start Date", df['Date'].min().strftime('%d-%m-%Y'))
+        st.metric("Start Date", df['Date'].min().strftime('%Y-%m-%d'))
     with col_stats4:
-        st.metric("End Date", df['Date'].max().strftime('%d-%m-%Y'))
+        st.metric("End Date", df['Date'].max().strftime('%Y-%m-%d'))
     
     # Download section
     st.markdown("---")
@@ -283,28 +230,10 @@ if 'dataframe' in st.session_state:
     col_dl1, col_dl2 = st.columns(2)
     
     with col_dl1:
-        # Excel download - date will be stored as datetime
+        # Excel download
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            # Create a copy for Excel with proper date format
-            df_excel = df.copy()
-            df_excel.to_excel(writer, index=False, sheet_name='Stock Data')
-            
-            # Format the date column in Excel
-            workbook = writer.book
-            worksheet = writer.sheets['Stock Data']
-            
-            # Apply date format to Date column (column A)
-            for row in range(2, len(df_excel) + 2):
-                cell = worksheet.cell(row=row, column=1)
-                cell.number_format = 'DD-MM-YYYY'
-            
-            # Apply number format with 2 decimals to all price columns
-            for col_idx, col_name in enumerate(df_excel.columns, start=1):
-                if col_name != 'Date':
-                    for row in range(2, len(df_excel) + 2):
-                        cell = worksheet.cell(row=row, column=col_idx)
-                        cell.number_format = '0.00'
+            df.to_excel(writer, index=False, sheet_name='Stock Data')
         
         st.download_button(
             label="📥 Download as Excel",
@@ -315,10 +244,8 @@ if 'dataframe' in st.session_state:
         )
     
     with col_dl2:
-        # CSV download with formatted dates
-        df_csv = df.copy()
-        df_csv['Date'] = df_csv['Date'].dt.strftime('%d-%m-%Y')
-        csv = df_csv.to_csv(index=False)
+        # CSV download
+        csv = df.to_csv(index=False)
         st.download_button(
             label="📥 Download as CSV",
             data=csv,
@@ -334,7 +261,6 @@ st.markdown("""
     <p>💡 <strong>Pro Tips:</strong></p>
     <ul style='list-style-type: none; padding: 0;'>
         <li>✓ No need to add .NS suffix - it's added automatically</li>
-        <li>✓ Use 'Close' price type to match NSE website prices</li>
         <li>✓ Data is fetched from Yahoo Finance using yfinance</li>
         <li>✓ Excel files can be directly used in your DCF models</li>
     </ul>
