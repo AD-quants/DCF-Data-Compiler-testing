@@ -15,6 +15,8 @@ st.set_page_config(
 st.title("📊 NSE Stock Data Downloader")
 st.markdown("Download Indian equity data for DCF analysis")
 
+st.info("ℹ️ **Disclaimer:** Data is sourced from Yahoo Finance and may contain missing values for certain dates due to holidays, trading suspensions, or data availability issues. Please verify data completeness before use in financial models.")
+
 # Nifty Indices dictionary - Complete list from NSE
 nifty_indices = {
     # Broad Market Indices
